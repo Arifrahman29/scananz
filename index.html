@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>Warehouse System</title>
+
+<meta name="viewport" content="width=device-width, initial-scale=1">
+
+<style>
+body{
+font-family: Arial;
+background:#0f172a;
+color:#fff;
+margin:0;
+}
+
+.container{
+padding:20px;
+max-width:500px;
+margin:auto;
+}
+
+.card{
+background:#1e293b;
+padding:20px;
+border-radius:15px;
+margin-bottom:15px;
+box-shadow:0 0 15px rgba(0,0,0,0.5);
+}
+
+h2,h3{
+margin-top:0;
+}
+
+input,select{
+width:100%;
+padding:12px;
+margin-top:5px;
+margin-bottom:10px;
+border:none;
+border-radius:10px;
+background:#334155;
+color:#fff;
+}
+
+button{
+width:100%;
+padding:12px;
+border:none;
+border-radius:10px;
+background:#3b82f6;
+color:#fff;
+font-weight:bold;
+margin-top:5px;
+}
+
+button:hover{
+background:#2563eb;
+}
+
+.btn-green{background:#22c55e;}
+.btn-red{background:#ef4444;}
+.btn-orange{background:#f59e0b;}
+
+.status{
+padding:10px;
+border-radius:10px;
+background:#020617;
+text-align:center;
+margin-top:10px;
+font-size:14px;
+}
+
+#video{
+width:100%;
+border-radius:10px;
+margin-top:10px;
+}
+
+.table{
+width:100%;
+border-collapse:collapse;
+margin-top:10px;
+}
+
+.table th,.table td{
+border:1px solid #334155;
+padding:8px;
+text-align:center;
+}
+
+.badge{
+padding:5px 10px;
+border-radius:10px;
+font-size:12px;
+}
+
+.badge-admin{background:#22c55e;}
+.badge-user{background:#f59e0b;}
+</style>
+
+</head>
+<body>
+
+<div class="container">
+
+<div class="card">
+<h2>Login</h2>
+<input id="user" placeholder="Username">
+<input id="pass" type="password" placeholder="Password">
+<button onclick="login()">LOGIN</button>
+<div id="loginStatus" class="status"></div>
+</div>
+
+<div id="scannerArea" style="display:none">
+
+<div class="card">
+<h3>Session</h3>
+<div id="userInfo"></div>
+</div>
+
+<div class="card">
+<h3>Judul Scan</h3>
+<input id="judul" placeholder="Masukkan judul">
+<button class="btn-green" onclick="setJudul()">SET</button>
+</div>
+
+<div class="card">
+<h3>Mode</h3>
+<select id="tipe">
+<option value="masuk">Barang Masuk</option>
+<option value="keluar">Barang Keluar</option>
+</select>
+
+<h3>Jumlah Box</h3>
+<input id="qty" value="1">
+</div>
+
+<div class="card">
+<h3>Manual Input</h3>
+<input id="manual" placeholder="Masukkan kode">
+<button onclick="manual()">INPUT</button>
+</div>
+
+<div class="card">
+<h3>Scanner Kamera</h3>
+<button class="btn-green" onclick="startCamera()">SCAN</button>
+<button class="btn-orange" onclick="startAutoCamera()">AUTO</button>
+<video id="video" autoplay></video>
+</div>
+
+<div class="card">
+<h3>Status</h3>
+<div id="hasil" class="status">SIAP</div>
+<button onclick="syncOfflineData()">SYNC OFFLINE</button>
+</div>
+
+<div id="menuAdmin" class="card" style="display:none">
+<h3>Admin Panel</h3>
+<button onclick="loadGlobal()">Stock Global</button>
+</div>
+
+<div id="menuGudang" class="card" style="display:none">
+<h3>Gudang Panel</h3>
+<button onclick="loadGudang()">Stock Gudang</button>
+</div>
+
+<div class="card">
+<h3>Export Data</h3>
+<button onclick="window.location='export_stock.php'">Export Stock</button>
+<button onclick="window.location='export_masuk.php'">Export Masuk</button>
+<button onclick="window.location='export_keluar.php'">Export Keluar</button>
+</div>
+
+<div class="card">
+<h3>Data</h3>
+<div id="data"></div>
+</div>
+
+</div>
+
+</div>
+
+<script>
+let role="",userGudang="",judul="";
+let isOnline=navigator.onLine;
+let lastScanTime=0;
+let autoCamera=false;
+
+window.addEventListener("online",()=>{isOnline=true;syncOfflineData();});
+window.addEventListener("offline",()=>{isOnline=false;});
+
+function generateID(){
+return Date.now()+"_"+Math.random().toString(36).substr(2,5);
+}
+
+function login(){
+fetch("login.php",{method:"POST",
+headers:{"Content-Type":"application/x-www-form-urlencoded"},
+body:"user="+user.value+"&pass="+pass.value})
+.then(r=>r.text()).then(d=>{
+if(d!="FAIL"){
+let s=d.split("|");
+role=s[1];userGudang=s[3];
+
+loginStatus.innerHTML="Login sukses";
+userInfo.innerHTML=`<span class="badge ${role=='admin'?'badge-admin':'badge-user'}">${role}</span> Gudang: ${userGudang}`;
+
+scannerArea.style.display="block";
+
+if(role=="admin") menuAdmin.style.display="block";
+else menuGudang.style.display="block";
+}
+});
+}
+
+function setJudul(){
+judul=document.getElementById("judul").value;
+hasil.innerText="Judul: "+judul;
+}
+
+function manual(){
+processData(document.getElementById("manual").value);
+}
+
+function processData(kode){
+let now=Date.now();
+
+if(now-lastScanTime<2000){
+hasil.innerText="TUNGGU 2 DETIK...";
+return;
+}
+
+lastScanTime=now;
+
+let data={
+id:generateID(),
+kode:kode,
+judul:judul,
+tipe:tipe.value,
+qty:qty.value,
+gudang:userGudang
+};
+
+if(isOnline){
+sendToServer(data);
+}else{
+saveOffline(data);
+hasil.innerText="OFFLINE: "+kode;
+}
+}
+
+function saveOffline(data){
+let list=JSON.parse(localStorage.getItem("offlineData")||"[]");
+list.push(data);
+localStorage.setItem("offlineData",JSON.stringify(list));
+}
+
+function syncOfflineData(){
+let list=JSON.parse(localStorage.getItem("offlineData")||"[]");
+list.forEach(d=>sendToServer(d));
+localStorage.removeItem("offlineData");
+}
+
+function sendToServer(data){
+fetch("save.php",{method:"POST",
+headers:{"Content-Type":"application/x-www-form-urlencoded"},
+body:"id="+data.id+"&kode="+data.kode+"&judul="+data.judul+"&tipe="+data.tipe+"&qty="+data.qty+"&gudang="+data.gudang
+}).then(()=>hasil.innerText="SYNC: "+data.kode);
+}
+
+function loadGlobal(){
+fetch("stock_global.php").then(r=>r.text()).then(d=>data.innerHTML=d);
+}
+
+function loadGudang(){
+fetch("stock_gudang.php?gudang="+userGudang).then(r=>r.text()).then(d=>data.innerHTML=d);
+}
+
+let video=document.getElementById("video");
+
+function startCamera(){
+navigator.mediaDevices.getUserMedia({video:{facingMode:"environment"}})
+.then(stream=>{
+video.srcObject=stream;
+scanLoop();
+});
+}
+
+function fakeScan(){
+return Math.floor(Math.random()*10000);
+}
+
+function scanLoop(){
+if(!video.srcObject)return;
+
+let kode=fakeScan();
+processData(kode);
+
+if(autoCamera){
+setTimeout(scanLoop,2000);
+}
+}
+
+function startAutoCamera(){
+autoCamera=true;
+startCamera();
+}
+</script>
+
+</body>
+</html>
